@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>JobTrack AI — Resume Matcher</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg:      #0a0a0f;
+    --surface: #12121a;
+    --card:    #1a1a26;
+    --border:  #2a2a3d;
+    --accent:  #6c63ff;
+    --accent2: #ff6584;
+    --accent3: #43e97b;
+    --text:    #e8e8f0;
+    --muted:   #7070a0;
+    --radius:  14px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* NOISE OVERLAY */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 0;
+  }
+
+  /* GLOW BLOBS */
+  .blob {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.12;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .blob-1 { width: 600px; height: 600px; background: var(--accent); top: -200px; left: -200px; }
+  .blob-2 { width: 400px; height: 400px; background: var(--accent2); bottom: -100px; right: -100px; }
+
+  /* LAYOUT */
+  .wrapper { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+  /* NAV */
+  nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 24px 0; border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px; font-weight: 800;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    letter-spacing: -0.5px;
+  }
+  .nav-badge {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 6px 14px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    color: var(--accent3);
+  }
+
+  /* HERO */
+  .hero { text-align: center; padding: 20px 0 50px; }
+  .hero h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(32px, 5vw, 56px);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -2px;
+    margin-bottom: 16px;
+  }
+  .hero h1 span {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .hero p { color: var(--muted); font-size: 17px; max-width: 500px; margin: 0 auto; line-height: 1.6; }
+
+  /* STATS */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-bottom: 48px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .stat-card::after {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+  }
+  .stat-card:hover { border-color: var(--accent); }
+  .stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; font-family: 'DM Mono', monospace; }
+  .stat-value { font-family: 'Syne', sans-serif; font-size: 36px; font-weight: 800; color: var(--text); }
+  .stat-value.green { color: var(--accent3); }
+  .stat-value.purple { color: var(--accent); }
+
+  /* MAIN GRID */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 28px;
+    align-items: start;
+  }
+  @media(max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
+
+  /* FORM PANEL */
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .panel-header h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px; font-weight: 700;
+  }
+  .panel-icon {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .panel-body { padding: 24px; }
+
+  /* FORM */
+  .form-group { margin-bottom: 18px; }
+  label { display: block; font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+  input, textarea, select {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    padding: 12px 14px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    outline: none;
+  }
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(108, 99, 255, 0.15);
+  }
+  textarea { resize: vertical; min-height: 100px; }
+  select option { background: var(--surface); }
+
+  /* FILE UPLOAD */
+  .file-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+  }
+  .file-zone:hover { border-color: var(--accent); background: rgba(108, 99, 255, 0.05); }
+  .file-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .file-zone-icon { font-size: 28px; margin-bottom: 8px; }
+  .file-zone-text { font-size: 13px; color: var(--muted); }
+  .file-zone-text strong { color: var(--accent); display: block; font-size: 14px; margin-bottom: 4px; }
+  .file-name { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--accent3); margin-top: 8px; display: none; }
+
+  /* BUTTON */
+  .btn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--accent), #9c67ff);
+    border: none; border-radius: 10px;
+    color: #fff;
+    font-family: 'Syne', sans-serif;
+    font-size: 15px; font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.15s;
+    letter-spacing: 0.3px;
+    margin-top: 4px;
+  }
+  .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-sm {
+    width: auto; padding: 7px 14px;
+    font-size: 12px; border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    cursor: pointer;
+    font-family: 'DM Mono', monospace;
+    transition: border-color 0.2s;
+  }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-danger { border-color: var(--accent2); }
+  .btn-danger:hover { color: var(--accent2); border-color: var(--accent2); }
+
+  /* LOADER */
+  .loader {
+    display: none;
+    width: 20px; height: 20px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin: 0 auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* APPLICATIONS LIST */
+  .list-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .list-header h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px; font-weight: 700;
+  }
+
+  /* APP CARD */
+  .app-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    margin-bottom: 14px;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.15s;
+    position: relative;
+    overflow: hidden;
+    animation: fadeIn 0.35s ease forwards;
+  }
+  .app-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--accent);
+    border-radius: 3px 0 0 3px;
+  }
+  .app-card.status-Interview::before { background: var(--accent3); }
+  .app-card.status-Rejected::before { background: var(--accent2); }
+  .app-card.status-Offered::before { background: #ffd700; }
+  .app-card:hover { border-color: var(--accent); transform: translateX(3px); }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  .app-card-top {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 12px;
+    gap: 12px;
+  }
+  .app-company { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 700; margin-bottom: 2px; }
+  .app-role { color: var(--muted); font-size: 13px; }
+  .app-meta {
+    display: flex; align-items: center; gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+
+  /* BADGE */
+  .badge {
+    padding: 4px 10px;
+    border-radius: 100px;
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .badge-applied  { background: rgba(108,99,255,.18); color: var(--accent); }
+  .badge-interview { background: rgba(67,233,123,.18); color: var(--accent3); }
+  .badge-rejected  { background: rgba(255,101,132,.18); color: var(--accent2); }
+  .badge-offered   { background: rgba(255,215,0,.18); color: #ffd700; }
+  .badge-date     { background: var(--surface); color: var(--muted); }
+
+  /* MATCH RING */
+  .match-ring {
+    position: relative;
+    width: 52px; height: 52px;
+    flex-shrink: 0;
+  }
+  .match-ring svg { transform: rotate(-90deg); }
+  .match-ring-bg { fill: none; stroke: var(--border); stroke-width: 4; }
+  .match-ring-fg { fill: none; stroke-width: 4; stroke-linecap: round; transition: stroke-dashoffset 1s ease; }
+  .match-ring-label {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px; font-weight: 500;
+    color: var(--text);
+  }
+
+  /* MODAL */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(6px);
+    z-index: 100;
+    align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    width: 100%; max-width: 560px;
+    max-height: 85vh;
+    overflow-y: auto;
+    animation: modalIn 0.25s ease;
+  }
+  @keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+  .modal-header {
+    padding: 22px 24px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .modal-header h3 { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; padding: 0; line-height: 1; }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 22px 24px; }
+
+  /* AI RESULT */
+  .ai-section { margin-bottom: 22px; }
+  .ai-section-title {
+    font-size: 11px; font-family: 'DM Mono', monospace;
+    text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin-bottom: 10px;
+  }
+  .skill-chip {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 100px;
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+    margin: 3px;
+  }
+  .chip-green { background: rgba(67,233,123,.15); color: var(--accent3); }
+  .chip-red   { background: rgba(255,101,132,.15); color: var(--accent2); }
+  .suggestion-item {
+    display: flex; gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px; line-height: 1.5;
+    color: var(--text);
+  }
+  .suggestion-item:last-child { border-bottom: none; }
+  .suggestion-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px; color: var(--accent);
+    flex-shrink: 0; padding-top: 1px;
+  }
+
+  /* MATCH BIG */
+  .match-big {
+    display: flex; align-items: center; gap: 18px;
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 22px;
+  }
+  .match-big-pct {
+    font-family: 'Syne', sans-serif;
+    font-size: 48px; font-weight: 800;
+    line-height: 1;
+  }
+  .match-big-label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .match-bar-wrap { flex: 1; }
+  .match-bar {
+    height: 8px; border-radius: 100px;
+    background: var(--border);
+    overflow: hidden; margin-top: 8px;
+  }
+  .match-bar-fill {
+    height: 100%; border-radius: 100px;
+    background: linear-gradient(90deg, var(--accent), var(--accent3));
+    transition: width 1s ease;
+  }
+
+  /* STATUS SELECT IN MODAL */
+  .status-select-row {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .status-btn {
+    padding: 7px 14px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .status-btn.active { color: var(--text); border-color: var(--accent); background: rgba(108,99,255,.15); }
+
+  /* EMPTY STATE */
+  .empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+  .empty-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.4; }
+  .empty-text { font-size: 15px; }
+
+  /* TOAST */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+    font-size: 14px;
+    z-index: 999;
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.3s ease;
+    max-width: 320px;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.success { border-color: var(--accent3); }
+  .toast.error   { border-color: var(--accent2); }
+
+  /* DIVIDER */
+  .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+
+<div class="wrapper">
+  <!-- NAV -->
+  <nav>
+    <div class="logo">JobTrack AI</div>
+    <div class="nav-badge" id="aiStatus">⚡ AI Ready</div>
+  </nav>
+
+  <!-- HERO -->
+  <div class="hero">
+    <h1>Track Jobs.<br/><span>Beat the ATS.</span></h1>
+    <p>Upload your resume, paste any job description, and let AI tell you exactly how well you match.</p>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-card">
+      <div class="stat-label">Total Applied</div>
+      <div class="stat-value purple" id="statTotal">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Match</div>
+      <div class="stat-value green" id="statMatch">0%</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Interviews</div>
+      <div class="stat-value" id="statInterview">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Offers</div>
+      <div class="stat-value" id="statOffer" style="color:#ffd700">0</div>
+    </div>
+  </div>
+
+  <!-- MAIN GRID -->
+  <div class="main-grid">
+    <!-- ADD FORM -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-icon">✦</div>
+        <h2>Add Application</h2>
+      </div>
+      <div class="panel-body">
+        <div class="form-group">
+          <label>Company Name *</label>
+          <input type="text" id="company" placeholder="e.g. Google, Infosys, TCS"/>
+        </div>
+        <div class="form-group">
+          <label>Role / Position *</label>
+          <input type="text" id="role" placeholder="e.g. Python Developer Intern"/>
+        </div>
+        <div class="form-group">
+          <label>Job Description</label>
+          <textarea id="jobDesc" placeholder="Paste the full job description here for AI matching..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Upload Resume (PDF)</label>
+          <div class="file-zone" id="fileZone">
+            <input type="file" id="resumeFile" accept=".pdf"/>
+            <div class="file-zone-icon">📄</div>
+            <div class="file-zone-text">
+              <strong>Click to upload PDF</strong>
+              Drag & drop supported
+            </div>
+            <div class="file-name" id="fileName"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="status">
+            <option>Applied</option>
+            <option>Interview</option>
+            <option>Offered</option>
+            <option>Rejected</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Notes</label>
+          <input type="text" id="notes" placeholder="Any notes about this application..."/>
+        </div>
+        <button class="btn" id="submitBtn" onclick="submitApplication()">
+          <span id="btnText">Analyze & Track →</span>
+          <div class="loader" id="btnLoader"></div>
+        </button>
+      </div>
+    </div>
+
+    <!-- APPLICATIONS -->
+    <div>
+      <div class="list-header">
+        <h2>Applications</h2>
+        <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted)" id="appCount">0 total</span>
+      </div>
+      <div id="appList">
+        <div class="empty">
+          <div class="empty-icon">🗂️</div>
+          <div class="empty-text">No applications yet.<br/>Add your first one!</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <br/><br/>
+</div>
+
+<!-- DETAIL MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Application Details</h3>
+      <button class="modal-close" onclick="closeModalDirect()">×</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ──────────────────────────────────────────────
+// UTILS
+// ──────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function showToast(msg, type = 'success') {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = `toast ${type} show`;
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function getBadgeClass(status) {
+  const map = { Applied:'badge-applied', Interview:'badge-interview', Offered:'badge-offered', Rejected:'badge-rejected' };
+  return map[status] || 'badge-applied';
+}
+
+function getMatchColor(pct) {
+  if (pct >= 70) return '#43e97b';
+  if (pct >= 40) return '#ffd700';
+  return '#ff6584';
+}
+
+function matchRingHTML(pct) {
+  const r = 22, circ = 2 * Math.PI * r;
+  const offset = circ - (pct / 100) * circ;
+  const color = getMatchColor(pct);
+  return `
+    <div class="match-ring">
+      <svg width="52" height="52" viewBox="0 0 52 52">
+        <circle class="match-ring-bg" cx="26" cy="26" r="${r}"/>
+        <circle class="match-ring-fg" cx="26" cy="26" r="${r}"
+          stroke="${color}"
+          stroke-dasharray="${circ}"
+          stroke-dashoffset="${offset}"/>
+      </svg>
+      <div class="match-ring-label">${pct}%</div>
+    </div>`;
+}
+
+// ──────────────────────────────────────────────
+// FILE UPLOAD
+// ──────────────────────────────────────────────
+$('resumeFile').addEventListener('change', function() {
+  const fn = $('fileName');
+  if (this.files[0]) {
+    fn.textContent = '✅ ' + this.files[0].name;
+    fn.style.display = 'block';
+  } else {
+    fn.style.display = 'none';
+  }
+});
+
+// ──────────────────────────────────────────────
+// STATS
+// ──────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const r = await fetch('/api/stats');
+    const s = await r.json();
+    $('statTotal').textContent = s.total;
+    $('statMatch').textContent = s.avg_match + '%';
+    $('statInterview').textContent = s.status_counts['Interview'] || 0;
+    $('statOffer').textContent = s.status_counts['Offered'] || 0;
+  } catch(e) {}
+}
+
+// ──────────────────────────────────────────────
+// LOAD APPLICATIONS
+// ──────────────────────────────────────────────
+async function loadApplications() {
+  const list = $('appList');
+  try {
+    const r = await fetch('/api/applications');
+    const apps = await r.json();
+    $('appCount').textContent = apps.length + ' total';
+
+    if (!apps.length) {
+      list.innerHTML = `<div class="empty"><div class="empty-icon">🗂️</div><div class="empty-text">No applications yet.<br/>Add your first one!</div></div>`;
+      return;
+    }
+
+    list.innerHTML = apps.map(a => `
+      <div class="app-card status-${a.status}" onclick="openModal(${a.id})">
+        <div class="app-card-top">
+          <div>
+            <div class="app-company">${a.company}</div>
+            <div class="app-role">${a.role}</div>
+          </div>
+          ${a.match_pct > 0 ? matchRingHTML(Math.round(a.match_pct)) : ''}
+        </div>
+        <div class="app-meta">
+          <span class="badge ${getBadgeClass(a.status)}">${a.status}</span>
+          <span class="badge badge-date">${a.applied_date || ''}</span>
+          ${a.notes ? `<span class="badge badge-date" style="font-size:11px">📝 ${a.notes.substring(0,30)}</span>` : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    list.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-text">Could not load applications.</div></div>`;
+  }
+}
+
+// ──────────────────────────────────────────────
+// SUBMIT
+// ──────────────────────────────────────────────
+async function submitApplication() {
+  const company = $('company').value.trim();
+  const role    = $('role').value.trim();
+  if (!company || !role) { showToast('Company and Role are required!', 'error'); return; }
+
+  const btn = $('submitBtn');
+  btn.disabled = true;
+  $('btnText').style.display = 'none';
+  $('btnLoader').style.display = 'block';
+
+  const fd = new FormData();
+  fd.append('company', company);
+  fd.append('role', role);
+  fd.append('job_desc', $('jobDesc').value);
+  fd.append('status', $('status').value);
+  fd.append('notes', $('notes').value);
+  const file = $('resumeFile').files[0];
+  if (file) fd.append('resume', file);
+
+  try {
+    const r = await fetch('/api/applications', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.success) {
+      showToast('✅ Application added!');
+      // Clear form
+      ['company','role','jobDesc','notes'].forEach(id => $(id).value = '');
+      $('status').value = 'Applied';
+      $('resumeFile').value = '';
+      $('fileName').style.display = 'none';
+      await loadApplications();
+      await loadStats();
+      // Show AI result if available
+      if (data.match_pct > 0) {
+        setTimeout(() => openModal(data.id), 400);
+      }
+    } else {
+      showToast(data.error || 'Error!', 'error');
+    }
+  } catch(e) {
+    showToast('Server error. Is Flask running?', 'error');
+  } finally {
+    btn.disabled = false;
+    $('btnText').style.display = '';
+    $('btnLoader').style.display = 'none';
+  }
+}
+
+// ──────────────────────────────────────────────
+// MODAL
+// ──────────────────────────────────────────────
+let currentAppId = null;
+const STATUSES = ['Applied', 'Interview', 'Offered', 'Rejected'];
+
+async function openModal(id) {
+  currentAppId = id;
+  const overlay = $('modalOverlay');
+  overlay.classList.add('open');
+  $('modalBody').innerHTML = '<div style="text-align:center;padding:40px"><div class="loader" style="display:block;margin:0 auto"></div></div>';
+
+  try {
+    const r = await fetch(`/api/applications/${id}`);
+    const a = await r.json();
+    $('modalTitle').textContent = `${a.company} — ${a.role}`;
+
+    const ai = a.ai_result || {};
+    const pct = Math.round(a.match_pct || 0);
+    const color = getMatchColor(pct);
+
+    const matchedHTML = (ai.matched_skills || []).map(s => `<span class="skill-chip chip-green">${s}</span>`).join('') || '<span style="color:var(--muted);font-size:13px">—</span>';
+    const missingHTML = (ai.missing_skills || []).map(s => `<span class="skill-chip chip-red">${s}</span>`).join('') || '<span style="color:var(--muted);font-size:13px">—</span>';
+    const suggestHTML = (ai.suggestions || []).map((s, i) => `
+      <div class="suggestion-item">
+        <span class="suggestion-num">0${i+1}</span>
+        <span>${s}</span>
+      </div>`).join('') || '<div style="color:var(--muted);font-size:13px">No suggestions</div>';
+
+    const statusBtns = STATUSES.map(s =>
+      `<button class="status-btn ${s === a.status ? 'active' : ''}" onclick="updateStatus('${s}', this)">${s}</button>`
+    ).join('');
+
+    $('modalBody').innerHTML = `
+      ${pct > 0 ? `
+      <div class="match-big">
+        <div>
+          <div class="match-big-pct" style="color:${color}">${pct}%</div>
+          <div class="match-big-label">Resume Match Score</div>
+          <div class="match-bar-wrap">
+            <div class="match-bar">
+              <div class="match-bar-fill" style="width:${pct}%"></div>
+            </div>
+          </div>
+        </div>
+      </div>` : ''}
+
+      ${ai.summary ? `<div class="ai-section">
+        <div class="ai-section-title">AI Summary</div>
+        <p style="font-size:14px;color:var(--muted);line-height:1.6">${ai.summary}</p>
+      </div>` : ''}
+
+      ${pct > 0 ? `
+      <div class="ai-section">
+        <div class="ai-section-title">Matched Skills ✅</div>
+        <div>${matchedHTML}</div>
+      </div>
+      <div class="ai-section">
+        <div class="ai-section-title">Missing Skills ❌</div>
+        <div>${missingHTML}</div>
+      </div>
+      <div class="ai-section">
+        <div class="ai-section-title">AI Suggestions 💡</div>
+        <div>${suggestHTML}</div>
+      </div>` : '<div style="color:var(--muted);font-size:14px;margin-bottom:20px">No AI analysis — add resume + job description to enable matching.</div>'}
+
+      <div class="divider"></div>
+      <div class="ai-section">
+        <div class="ai-section-title">Update Status</div>
+        <div class="status-select-row">${statusBtns}</div>
+      </div>
+      <div class="divider"></div>
+      <button class="btn-sm btn-danger" onclick="deleteApplication(${id})" style="margin-top:4px">🗑 Delete Application</button>
+    `;
+  } catch(e) {
+    $('modalBody').innerHTML = '<div style="color:var(--accent2);padding:20px">Failed to load details.</div>';
+  }
+}
+
+async function updateStatus(status, btn) {
+  try {
+    await fetch(`/api/applications/${currentAppId}/status`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({status})
+    });
+    document.querySelectorAll('.status-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    showToast(`Status updated to ${status}`);
+    loadApplications(); loadStats();
+  } catch(e) { showToast('Failed to update status', 'error'); }
+}
+
+async function deleteApplication(id) {
+  if (!confirm('Delete this application?')) return;
+  try {
+    await fetch(`/api/applications/${id}`, { method: 'DELETE' });
+    closeModalDirect();
+    showToast('Application deleted');
+    loadApplications(); loadStats();
+  } catch(e) { showToast('Failed to delete', 'error'); }
+}
+
+function closeModal(e) {
+  if (e.target === $('modalOverlay')) closeModalDirect();
+}
+function closeModalDirect() {
+  $('modalOverlay').classList.remove('open');
+  currentAppId = null;
+}
+
+// ──────────────────────────────────────────────
+// INIT
+// ──────────────────────────────────────────────
+loadStats();
+loadApplications();
+</script>
+</body>
+</html>
